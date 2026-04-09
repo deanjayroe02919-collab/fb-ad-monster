@@ -1,0 +1,540 @@
+{
+  "name": "Facebook Ad Creative Optimization Lab (Bytez)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "ad_idea",
+              "value": "Modern new-construction homes near top schools with builder incentives."
+            },
+            {
+              "name": "target_audience",
+              "value": "Growing families looking for move-in-ready homes in suburban markets."
+            },
+            {
+              "name": "offer",
+              "value": "Limited-time closing cost credit + design upgrade package."
+            },
+            {
+              "name": "budget",
+              "value": "$2,500/month"
+            },
+            {
+              "name": "goal",
+              "value": "Generate qualified buyer leads for model-home tours."
+            }
+          ]
+        }
+      },
+      "id": "2",
+      "name": "Input Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        460,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "bytez_base_url",
+              "value": "https://api.bytez.com/v1/chat/completions"
+            },
+            {
+              "name": "bytez_api_key",
+              "value": "REPLACE_WITH_BYTEZ_API_KEY"
+            },
+            {
+              "name": "google_sheet_id",
+              "value": "REPLACE_WITH_GOOGLE_SHEET_ID"
+            },
+            {
+              "name": "google_sheet_tab",
+              "value": "creative_lab_logs"
+            }
+          ],
+          "number": [
+            {
+              "name": "max_iterations",
+              "value": 5
+            },
+            {
+              "name": "stop_threshold",
+              "value": 8.5
+            }
+          ],
+          "json": [
+            {
+              "name": "model_pool",
+              "value": "[\"openai/gpt-4.1\",\"anthropic/claude-opus-4\",\"google/gemini-2.5-pro\",\"meta-llama/llama-3\",\"mistralai/mixtral\"]"
+            },
+            {
+              "name": "agent_roles",
+              "value": "[\"Facebook media buyer\",\"Direct response copywriter\",\"Consumer psychologist\",\"Skeptical consumer\",\"Real estate buyer persona\",\"Compliance reviewer\",\"CTR optimizer\",\"Hook expert\",\"Competitor marketer\",\"Emotional trigger expert\",\"Funnel strategist\",\"Branding expert\",\"Ad fatigue analyst\",\"Engagement predictor\",\"Lead quality reviewer\",\"Algorithm estimator\",\"Offer strategist\",\"Marketing professor\",\"Ad critic\",\"Final judge\"]"
+            },
+            {
+              "name": "weights",
+              "value": "{\"ctr\":0.35,\"cpl\":0.25,\"lead_quality\":0.25,\"realism\":0.15}"
+            }
+          ]
+        }
+      },
+      "id": "3",
+      "name": "Config (Edit Here)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        680,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Initialize state and assign random models for this run.\nconst row = $json;\nconst modelPool = Array.isArray(row.model_pool) ? row.model_pool : JSON.parse(row.model_pool);\nconst agentRoles = Array.isArray(row.agent_roles) ? row.agent_roles : JSON.parse(row.agent_roles);\nconst weights = typeof row.weights === 'object' ? row.weights : JSON.parse(row.weights);\n\nfunction pickRandomModel() {\n  return modelPool[Math.floor(Math.random() * modelPool.length)];\n}\n\nconst agentModelAssignments = agentRoles.map((role, i) => ({\n  agent_id: i + 1,\n  role,\n  model: pickRandomModel(),\n}));\n\nconst phaseModels = {\n  generation: pickRandomModel(),\n  evaluation: pickRandomModel(),\n  objections: pickRandomModel(),\n  optimization: pickRandomModel(),\n};\n\nreturn [{\n  json: {\n    ...row,\n    model_pool: modelPool,\n    agent_roles: agentRoles,\n    weights,\n    agent_model_assignments: agentModelAssignments,\n    phase_models: phaseModels,\n    state: {\n      iteration: 1,\n      max_iterations: Number(row.max_iterations || 5),\n      stop_threshold: Number(row.stop_threshold || 8.5),\n      ads: [],\n      top_ads: [],\n      logs: [],\n      winner: null,\n      stop: false\n    }\n  }\n}];"
+      },
+      "id": "4",
+      "name": "Init State + Random Models",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        920,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$json.bytez_base_url}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $json.bytez_api_key}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": $json.phase_models.generation,\n  \"temperature\": 0.9,\n  \"response_format\": { \"type\": \"json_object\" },\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a direct-response Facebook creative strategist for NEW CONSTRUCTION real estate only. Creative-only. Never include targeting settings, demographics, geos, budgets, campaign objectives, or Ads Manager setup. Return strict JSON only.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Create 10 distinct Facebook ad concepts from this input. Input: ad_idea={{$json.ad_idea}} | target_audience={{$json.target_audience}} | offer={{$json.offer}} | budget={{$json.budget}} | goal={{$json.goal}}. Return JSON format: {\\\"ads\\\":[{\\\"ad_id\\\":\\\"A1\\\",\\\"headline\\\":\\\"\\\",\\\"primary_text\\\":\\\"\\\",\\\"cta\\\":\\\"\\\",\\\"creative_concept\\\":\\\"\\\",\\\"image_prompt\\\":\\\"\\\",\\\"video_prompt\\\":\\\"\\\",\\\"hook_overlay_text\\\":\\\"\\\",\\\"thumbnail_text\\\":\\\"\\\"}]}.\"\n    }\n  ]\n}"
+      },
+      "id": "5",
+      "name": "Generate 10 Ad Concepts (Bytez)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1170,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse generated concepts and store in state.\nconst input = $json;\nconst content = input.choices?.[0]?.message?.content || '{}';\nlet parsed;\ntry {\n  parsed = typeof content === 'string' ? JSON.parse(content) : content;\n} catch (e) {\n  parsed = { ads: [] };\n}\n\nconst ads = Array.isArray(parsed.ads) ? parsed.ads.slice(0, 10) : [];\n\nconst normalizedAds = ads.map((ad, idx) => ({\n  ad_id: ad.ad_id || `A${idx + 1}`,\n  parent_ad_id: ad.parent_ad_id || null,\n  headline: ad.headline || '',\n  primary_text: ad.primary_text || '',\n  cta: ad.cta || '',\n  creative_concept: ad.creative_concept || '',\n  image_prompt: ad.image_prompt || '',\n  video_prompt: ad.video_prompt || '',\n  hook_overlay_text: ad.hook_overlay_text || '',\n  thumbnail_text: ad.thumbnail_text || ''\n}));\n\nreturn [{\n  json: {\n    ...$('Init State + Random Models').first().json,\n    state: {\n      ...$('Init State + Random Models').first().json.state,\n      ads: normalizedAds\n    }\n  }\n}];"
+      },
+      "id": "6",
+      "name": "Store Initial Ads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1430,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$json.bytez_base_url}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $json.bytez_api_key}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": $json.phase_models.evaluation,\n  \"temperature\": 0.2,\n  \"response_format\": { \"type\": \"json_object\" },\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are an ad evaluation orchestrator. Evaluate Facebook real-estate ad creatives only. No targeting or campaign setup advice. Return strict JSON only.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Iteration {{$json.state.iteration}}. Evaluate each ad with 20 agent roles: {{$json.agent_roles.join(', ')}}. Use model rotation metadata: {{JSON.stringify($json.agent_model_assignments)}}. For each ad, return 20 evaluations with fields: ctr_score (1-10), cpl_score (1-10), lead_quality_score (1-10), realism_score (1-10), feedback, biggest_strength, biggest_weakness, suggested_improvement. Input ads: {{JSON.stringify($json.state.ads)}}. Return JSON shape: {\\\"ad_reviews\\\":[{\\\"ad_id\\\":\\\"A1\\\",\\\"agent_reviews\\\":[{\\\"agent_id\\\":1,\\\"role\\\":\\\"Facebook media buyer\\\",\\\"ctr_score\\\":7,\\\"cpl_score\\\":7,\\\"lead_quality_score\\\":6,\\\"realism_score\\\":8,\\\"feedback\\\":\\\"\\\",\\\"biggest_strength\\\":\\\"\\\",\\\"biggest_weakness\\\":\\\"\\\",\\\"suggested_improvement\\\":\\\"\\\"}]}]}\"\n    }\n  ]\n}"
+      },
+      "id": "7",
+      "name": "Evaluate Ads (20-Agent Panel)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate 20-agent scoring, rank ads, keep top 3, and check stop conditions.\nconst root = $('Store Initial Ads').first().json;\nconst content = $json.choices?.[0]?.message?.content || '{}';\nlet parsed;\ntry {\n  parsed = typeof content === 'string' ? JSON.parse(content) : content;\n} catch (e) {\n  parsed = { ad_reviews: [] };\n}\n\nconst adReviews = Array.isArray(parsed.ad_reviews) ? parsed.ad_reviews : [];\nconst adsById = new Map((root.state.ads || []).map(a => [a.ad_id, a]));\nconst w = root.weights;\n\nfunction avg(arr, key) {\n  if (!arr.length) return 0;\n  return arr.reduce((s, x) => s + Number(x[key] || 0), 0) / arr.length;\n}\n\nconst scored = adReviews.map(item => {\n  const reviews = Array.isArray(item.agent_reviews) ? item.agent_reviews : [];\n  const avg_ctr_score = avg(reviews, 'ctr_score');\n  const avg_cpl_score = avg(reviews, 'cpl_score');\n  const avg_lead_quality_score = avg(reviews, 'lead_quality_score');\n  const avg_realism_score = avg(reviews, 'realism_score');\n  const final_score = (avg_ctr_score * w.ctr) + (avg_cpl_score * w.cpl) + (avg_lead_quality_score * w.lead_quality) + (avg_realism_score * w.realism);\n\n  const strengths = reviews.map(r => r.biggest_strength).filter(Boolean);\n  const weaknesses = reviews.map(r => r.biggest_weakness).filter(Boolean);\n  const improvements = reviews.map(r => r.suggested_improvement).filter(Boolean);\n\n  return {\n    ...(adsById.get(item.ad_id) || { ad_id: item.ad_id }),\n    agent_reviews: reviews,\n    avg_ctr_score: Number(avg_ctr_score.toFixed(3)),\n    avg_cpl_score: Number(avg_cpl_score.toFixed(3)),\n    avg_lead_quality_score: Number(avg_lead_quality_score.toFixed(3)),\n    avg_realism_score: Number(avg_realism_score.toFixed(3)),\n    final_score: Number(final_score.toFixed(3)),\n    biggest_strength: strengths[0] || '',\n    biggest_weakness: weaknesses[0] || '',\n    suggested_improvements: improvements\n  };\n});\n\nscored.sort((a, b) => b.final_score - a.final_score);\nconst topAds = scored.slice(0, 3);\nconst best = scored[0] || null;\n\nconst priorLogs = root.state.logs || [];\nconst now = new Date().toISOString();\nconst iteration = root.state.iteration;\n\nconst logRows = scored.map(ad => ({\n  timestamp: now,\n  ad_idea: root.ad_idea,\n  iteration,\n  ad_id: ad.ad_id,\n  parent_ad_id: ad.parent_ad_id || '',\n  headline: ad.headline,\n  primary_text: ad.primary_text,\n  cta: ad.cta,\n  creative_concept: ad.creative_concept,\n  image_prompt: ad.image_prompt,\n  video_prompt: ad.video_prompt,\n  hook_overlay_text: ad.hook_overlay_text,\n  thumbnail_text: ad.thumbnail_text,\n  avg_ctr_score: ad.avg_ctr_score,\n  avg_cpl_score: ad.avg_cpl_score,\n  avg_lead_quality_score: ad.avg_lead_quality_score,\n  avg_realism_score: ad.avg_realism_score,\n  final_score: ad.final_score,\n  top_objections: '',\n  biggest_strength: ad.biggest_strength || '',\n  biggest_weakness: ad.biggest_weakness || '',\n  winning_ad_flag: best && best.ad_id === ad.ad_id ? 'yes' : 'no'\n}));\n\nconst stop = !!(best && best.final_score >= Number(root.state.stop_threshold));\n\nreturn [{\n  json: {\n    ...root,\n    state: {\n      ...root.state,\n      ads: scored,\n      top_ads: topAds,\n      winner: stop ? { ...best, winning_iteration: iteration } : (root.state.winner || null),\n      stop,\n      logs: [...priorLogs, ...logRows]\n    },\n    sheet_rows: logRows\n  }\n}];"
+      },
+      "id": "8",
+      "name": "Score + Rank + Top 3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1930,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "={{$json.google_sheet_id}}",
+        "sheetName": "={{$json.google_sheet_tab}}",
+        "columns": {
+          "mappingMode": "autoMapInputData"
+        }
+      },
+      "id": "9",
+      "name": "Log Iteration to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        2180,
+        320
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.state.stop}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "10",
+      "name": "Stop Early?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2410,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$json.bytez_base_url}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $json.bytez_api_key}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": $json.phase_models.objections,\n  \"temperature\": 0.7,\n  \"response_format\": { \"type\": \"json_object\" },\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You simulate Facebook comment sections for real-estate creatives. Focus on objections and practical buyer concerns. Return strict JSON only.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"For each top ad: {{JSON.stringify($json.state.top_ads)}} generate realistic comments including objections, confusion, skepticism, buying intent, troll-ish negativity, and practical questions. Then provide analysis: top_objections, missing_info, clarifications_needed, creative_improvements. Return JSON: {\\\"objection_reports\\\":[{\\\"ad_id\\\":\\\"A1\\\",\\\"comments\\\":[\\\"...\\\"],\\\"top_objections\\\":[\\\"...\\\"],\\\"missing_info\\\":[\\\"...\\\"],\\\"clarifications_needed\\\":[\\\"...\\\"],\\\"creative_improvements\\\":[\\\"...\\\"]}]}\"\n    }\n  ]\n}"
+      },
+      "id": "11",
+      "name": "Simulate Comments + Objections",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2660,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$json.bytez_base_url}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $json.bytez_api_key}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": $json.phase_models.optimization,\n  \"temperature\": 0.8,\n  \"response_format\": { \"type\": \"json_object\" },\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a senior direct-response creative optimizer for NEW CONSTRUCTION real estate Facebook ads. Creative-only output. No targeting and no Ads Manager setup details. Return strict JSON only.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Rewrite and improve the top 3 ads using prior evaluator feedback and objection analysis. Input top_ads={{JSON.stringify($json.state.top_ads)}}. Input objection_reports={{JSON.stringify($json.objection_reports || [])}}. Return JSON: {\\\"optimized_ads\\\":[{\\\"ad_id\\\":\\\"A1_v2\\\",\\\"parent_ad_id\\\":\\\"A1\\\",\\\"headline\\\":\\\"\\\",\\\"primary_text\\\":\\\"\\\",\\\"cta\\\":\\\"\\\",\\\"creative_concept\\\":\\\"\\\",\\\"image_prompt\\\":\\\"\\\",\\\"video_prompt\\\":\\\"\\\",\\\"hook_overlay_text\\\":\\\"\\\",\\\"thumbnail_text\\\":\\\"\\\",\\\"top_objections_addressed\\\":[\\\"...\\\"],\\\"why_improved\\\":\\\"\\\"}]}\"\n    }\n  ]\n}"
+      },
+      "id": "12",
+      "name": "Optimize Top 3 Ads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3160,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge objection reports and optimized ads into next iteration state.\nconst root = $('Score + Rank + Top 3').first().json;\nconst objectionContent = $('Simulate Comments + Objections').first().json.choices?.[0]?.message?.content || '{}';\nlet objectionParsed;\ntry {\n  objectionParsed = typeof objectionContent === 'string' ? JSON.parse(objectionContent) : objectionContent;\n} catch (e) {\n  objectionParsed = { objection_reports: [] };\n}\n\nconst optimizeContent = $json.choices?.[0]?.message?.content || '{}';\nlet optimizedParsed;\ntry {\n  optimizedParsed = typeof optimizeContent === 'string' ? JSON.parse(optimizeContent) : optimizeContent;\n} catch (e) {\n  optimizedParsed = { optimized_ads: [] };\n}\n\nconst objectionReports = Array.isArray(objectionParsed.objection_reports) ? objectionParsed.objection_reports : [];\nconst optimizedAds = Array.isArray(optimizedParsed.optimized_ads) ? optimizedParsed.optimized_ads : [];\n\nconst nextIteration = root.state.iteration + 1;\nconst stopForMaxIterations = nextIteration > Number(root.state.max_iterations);\n\n// On next round, only top 3 refined creatives continue.\nconst nextAds = optimizedAds.map((ad, idx) => ({\n  ad_id: ad.ad_id || `ITER${nextIteration}_A${idx + 1}`,\n  parent_ad_id: ad.parent_ad_id || root.state.top_ads[idx]?.ad_id || null,\n  headline: ad.headline || '',\n  primary_text: ad.primary_text || '',\n  cta: ad.cta || '',\n  creative_concept: ad.creative_concept || '',\n  image_prompt: ad.image_prompt || '',\n  video_prompt: ad.video_prompt || '',\n  hook_overlay_text: ad.hook_overlay_text || '',\n  thumbnail_text: ad.thumbnail_text || '',\n  top_objections_addressed: ad.top_objections_addressed || [],\n  why_improved: ad.why_improved || ''\n}));\n\nconst priorWinner = root.state.winner;\nconst winner = priorWinner || (root.state.ads?.[0] ? { ...root.state.ads[0], winning_iteration: root.state.iteration } : null);\n\nreturn [{\n  json: {\n    ...root,\n    objection_reports: objectionReports,\n    state: {\n      ...root.state,\n      iteration: nextIteration,\n      ads: nextAds,\n      top_ads: nextAds,\n      stop: stopForMaxIterations,\n      winner\n    }\n  }\n}];"
+      },
+      "id": "13",
+      "name": "Prepare Next Iteration",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3410,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.state.stop}}",
+              "value2": false
+            }
+          ]
+        }
+      },
+      "id": "14",
+      "name": "Continue Loop?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3650,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Final payload containing winning ad + full creative pack.\nconst root = $json;\nconst winner = root.state.winner || root.state.ads?.[0] || null;\nconst finalists = (root.state.ads || []).slice(0, 3);\n\nconst final = {\n  winning_ad: winner?.ad_id || null,\n  winning_score: winner?.final_score || null,\n  winning_iteration: winner?.winning_iteration || root.state.iteration,\n  headline: winner?.headline || '',\n  primary_text: winner?.primary_text || '',\n  cta: winner?.cta || '',\n  creative_concept: winner?.creative_concept || '',\n  image_prompt: winner?.image_prompt || '',\n  video_prompt: winner?.video_prompt || '',\n  hook_overlay_text: winner?.hook_overlay_text || '',\n  thumbnail_text: winner?.thumbnail_text || '',\n  summary_of_why_it_won: winner?.why_improved || 'Highest weighted score across CTR, CPL efficiency proxy, lead quality, and realism.',\n  top_objections_addressed: winner?.top_objections_addressed || [],\n  all_top_3_finalists: finalists\n};\n\nreturn [{ json: { ...root, final_output: final } }];"
+      },
+      "id": "15",
+      "name": "Build Final Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2660,
+        220
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Input Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Input Fields": {
+      "main": [
+        [
+          {
+            "node": "Config (Edit Here)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config (Edit Here)": {
+      "main": [
+        [
+          {
+            "node": "Init State + Random Models",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init State + Random Models": {
+      "main": [
+        [
+          {
+            "node": "Generate 10 Ad Concepts (Bytez)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate 10 Ad Concepts (Bytez)": {
+      "main": [
+        [
+          {
+            "node": "Store Initial Ads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Initial Ads": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Ads (20-Agent Panel)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Ads (20-Agent Panel)": {
+      "main": [
+        [
+          {
+            "node": "Score + Rank + Top 3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score + Rank + Top 3": {
+      "main": [
+        [
+          {
+            "node": "Log Iteration to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Iteration to Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Stop Early?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stop Early?": {
+      "main": [
+        [
+          {
+            "node": "Build Final Output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Simulate Comments + Objections",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simulate Comments + Objections": {
+      "main": [
+        [
+          {
+            "node": "Optimize Top 3 Ads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Optimize Top 3 Ads": {
+      "main": [
+        [
+          {
+            "node": "Prepare Next Iteration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Next Iteration": {
+      "main": [
+        [
+          {
+            "node": "Continue Loop?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Continue Loop?": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Ads (20-Agent Panel)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Final Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "versionId": "a6e17f95-creative-lab",
+  "meta": {
+    "instanceId": "replace-me"
+  },
+  "id": "facebook-creative-optimization-lab"
+}
